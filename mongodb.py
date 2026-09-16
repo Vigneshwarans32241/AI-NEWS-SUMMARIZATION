@@ -345,3 +345,44 @@ def item_helper(item) -> dict:
     item["id"] = str(item["_id"])
     del item["_id"]
     return item
+
+async def auto_seed_if_empty():
+    if motor_db is not None:
+        try:
+            coll = motor_db.get_collection("articles")
+            count = await coll.count_documents({})
+            if count == 0:
+                print("MongoDB Atlas articles collection is empty. Auto-seeding from local_db.json...")
+                data = _load_local_db()
+                articles = data.get("articles", [])
+                if articles:
+                    for i in range(0, len(articles), 50):
+                        batch = articles[i:i+50]
+                        clean_batch = []
+                        for item in batch:
+                            d = dict(item)
+                            if "_id" in d and isinstance(d["_id"], str) and len(d["_id"]) == 24:
+                                try:
+                                    d["_id"] = ObjectId(d["_id"])
+                                except Exception:
+                                    pass
+                            clean_batch.append(d)
+                        await coll.insert_many(clean_batch)
+                    print(f"Successfully seeded {len(articles)} articles into MongoDB Atlas!")
+                users_coll = motor_db.get_collection("users")
+                if await users_coll.count_documents({}) == 0:
+                    users = data.get("users", [])
+                    if users:
+                        clean_users = []
+                        for u in users:
+                            d = dict(u)
+                            if "_id" in d and isinstance(d["_id"], str) and len(d["_id"]) == 24:
+                                try:
+                                    d["_id"] = ObjectId(d["_id"])
+                                except Exception:
+                                    pass
+                            clean_users.append(d)
+                        await users_coll.insert_many(clean_users)
+                    print(f"Successfully seeded {len(users)} users into MongoDB Atlas!")
+        except Exception as e:
+            print(f"Auto-seed notice: {e}")

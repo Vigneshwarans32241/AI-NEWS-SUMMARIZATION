@@ -34,6 +34,11 @@ async def scheduled_ingestion():
 @app.on_event("startup")
 async def startup_event():
     try:
+        from mongodb import auto_seed_if_empty
+        await auto_seed_if_empty()
+    except Exception as e:
+        print(f"Auto-seed notice: {e}")
+    try:
         scheduler.add_job(scheduled_ingestion, "interval", minutes=5, max_instances=1)
         scheduler.start()
     except Exception as e:
