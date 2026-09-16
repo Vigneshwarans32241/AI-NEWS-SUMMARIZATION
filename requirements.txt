@@ -4,6 +4,8 @@ motor
 pymongo
 pydantic
 pydantic-settings
+email-validator
+bcrypt
 passlib[bcrypt]
 python-jose[cryptography]
 python-multipart
