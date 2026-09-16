@@ -210,7 +210,7 @@ class LocalCollectionWrapper:
         return True
 
     async def find_one(self, filter_dict, sort=None):
-        if self.motor_coll:
+        if self.motor_coll is not None:
             try:
                 return await self.motor_coll.find_one(filter_dict, sort=sort)
             except Exception:
@@ -229,7 +229,7 @@ class LocalCollectionWrapper:
         return None
 
     async def insert_one(self, document):
-        if self.motor_coll:
+        if self.motor_coll is not None:
             try:
                 return await self.motor_coll.insert_one(document)
             except Exception:
@@ -250,7 +250,7 @@ class LocalCollectionWrapper:
         return InsertResult(new_id)
 
     async def count_documents(self, filter_dict):
-        if self.motor_coll:
+        if self.motor_coll is not None:
             try:
                 return await self.motor_coll.count_documents(filter_dict)
             except Exception:
@@ -277,7 +277,7 @@ class LocalCollectionWrapper:
                 matched.append(res)
         fallback = LocalCursor(matched)
 
-        if self.motor_coll:
+        if self.motor_coll is not None:
             try:
                 motor_cur = self.motor_coll.find(filter_dict, projection)
                 return SafeMotorCursor(motor_cur, fallback)
@@ -287,7 +287,7 @@ class LocalCollectionWrapper:
         return fallback
 
     async def distinct(self, key, filter_dict=None):
-        if self.motor_coll:
+        if self.motor_coll is not None:
             try:
                 return await self.motor_coll.distinct(key, filter_dict)
             except Exception:
@@ -303,7 +303,7 @@ class LocalCollectionWrapper:
         return list(vals)
 
     async def update_one(self, filter_dict, update_dict):
-        if self.motor_coll:
+        if self.motor_coll is not None:
             try:
                 return await self.motor_coll.update_one(filter_dict, update_dict)
             except Exception:
