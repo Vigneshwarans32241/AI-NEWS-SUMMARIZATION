@@ -441,21 +441,44 @@ def generate_ai_features(simplified_text, headline=None):
 
     return {"genre": genre, "quizzes": quizzes[:3]}
 
+BLACKLISTED_MODELS = set()
 CACHED_GROQ_MODEL = None
+
+EXCLUDE_MODEL_KEYWORDS = [
+    "orpheus", "canopylabs", "whisper", "guard", "rerank", "embed",
+    "tts", "audio", "vision", "bge", "all-minilm"
+]
+
+def is_valid_chat_model(model_id):
+    """
+    Validates that a model ID is a text chat LLM and not an audio/TTS/guard model.
+    """
+    if not model_id:
+        return False
+    mid = model_id.lower()
+    if mid in BLACKLISTED_MODELS:
+        return False
+    if any(kw in mid for kw in EXCLUDE_MODEL_KEYWORDS):
+        return False
+    return any(kw in mid for kw in ["llama", "compound", "qwen", "gemma", "mistral", "mixtral", "minimax"])
 
 def get_best_groq_model(client):
     """
-    Dynamically identifies an active, supported Groq model for the current API key.
-    Prevents 404 model_not_found errors if a model is deprecated or inaccessible in the account.
+    Dynamically identifies an active, supported Groq text chat model for the current API key.
+    Excludes audio/TTS and guarded models, preventing terms acceptance and 404 errors.
     """
     global CACHED_GROQ_MODEL
-    if CACHED_GROQ_MODEL:
+    if CACHED_GROQ_MODEL and CACHED_GROQ_MODEL not in BLACKLISTED_MODELS:
         return CACHED_GROQ_MODEL
 
     env_model = os.environ.get("GROQ_MODEL")
     candidate_order = [
         env_model,
         "llama-3.3-70b-versatile",
+        "groq/compound-mini",
+        "qwen/qwen3.8-27b",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "minimaxai/minimax-m2.7",
         "llama3-70b-8192",
         "llama3-8b-8192",
         "gemma2-9b-it",
@@ -463,22 +486,27 @@ def get_best_groq_model(client):
     ]
     try:
         models_res = client.models.list()
-        available_ids = {m.id for m in models_res.data}
+        available_ids = [m.id for m in models_res.data]
         for cand in candidate_order:
-            if cand and cand in available_ids:
+            if cand and cand in available_ids and is_valid_chat_model(cand):
                 CACHED_GROQ_MODEL = cand
-                print(f"[Groq AI] Selected active model: {CACHED_GROQ_MODEL}")
+                print(f"[Groq AI] Selected active chat model: {CACHED_GROQ_MODEL}")
                 return CACHED_GROQ_MODEL
         if available_ids:
             for mid in available_ids:
-                if "whisper" not in mid and "guard" not in mid:
+                if is_valid_chat_model(mid):
                     CACHED_GROQ_MODEL = mid
-                    print(f"[Groq AI] Auto-selected available model: {CACHED_GROQ_MODEL}")
+                    print(f"[Groq AI] Auto-selected available chat model: {CACHED_GROQ_MODEL}")
                     return CACHED_GROQ_MODEL
     except Exception as e:
         print(f"[Groq AI] Could not query models list: {e}")
 
-    CACHED_GROQ_MODEL = env_model or "llama-3.3-70b-versatile"
+    for fallback in ["llama-3.3-70b-versatile", "groq/compound-mini", "llama3-70b-8192", "llama3-8b-8192", "gemma2-9b-it"]:
+        if fallback not in BLACKLISTED_MODELS:
+            CACHED_GROQ_MODEL = fallback
+            return CACHED_GROQ_MODEL
+
+    CACHED_GROQ_MODEL = "llama-3.3-70b-versatile"
     return CACHED_GROQ_MODEL
 
 def generate_groq_ai_content(text, headline=None, max_retries=3):
@@ -596,14 +624,15 @@ def generate_groq_ai_content(text, headline=None, max_retries=3):
             }
         except Exception as e:
             err_str = str(e)
-            if "model_not_found" in err_str or "404" in err_str or "does not exist" in err_str.lower():
-                print(f"[Groq AI] Model '{model_name}' not found (404). Switching model and retrying...")
+            is_model_error = any(kw in err_str.lower() for kw in [
+                "model_not_found", "404", "does not exist", "do not have access",
+                "model_terms_required", "terms acceptance", "invalid_request_error",
+                "permission_denied", "not found"
+            ])
+            if is_model_error:
+                print(f"[Groq AI] Model '{model_name}' unusable ({err_str[:120]}). Blacklisting model and rotating...")
+                BLACKLISTED_MODELS.add(model_name)
                 CACHED_GROQ_MODEL = None
-                fallback_list = ["llama-3.3-70b-versatile", "llama3-70b-8192", "llama3-8b-8192", "gemma2-9b-it"]
-                for fb in fallback_list:
-                    if fb != model_name:
-                        CACHED_GROQ_MODEL = fb
-                        break
                 continue
             elif "429" in err_str or "rate_limit" in err_str.lower():
                 # Rate limited: wait and retry
@@ -694,14 +723,15 @@ def generate_groq_quizzes_only(text, headline=None, max_retries=3):
                     return clean_q[:3]
         except Exception as e:
             err_str = str(e)
-            if "model_not_found" in err_str or "404" in err_str or "does not exist" in err_str.lower():
-                print(f"[Groq AI] Model '{model_name}' not found (404). Switching model and retrying...")
+            is_model_error = any(kw in err_str.lower() for kw in [
+                "model_not_found", "404", "does not exist", "do not have access",
+                "model_terms_required", "terms acceptance", "invalid_request_error",
+                "permission_denied", "not found"
+            ])
+            if is_model_error:
+                print(f"[Groq AI] Model '{model_name}' unusable ({err_str[:120]}). Blacklisting model and rotating...")
+                BLACKLISTED_MODELS.add(model_name)
                 CACHED_GROQ_MODEL = None
-                fallback_list = ["llama-3.3-70b-versatile", "llama3-70b-8192", "llama3-8b-8192", "gemma2-9b-it"]
-                for fb in fallback_list:
-                    if fb != model_name:
-                        CACHED_GROQ_MODEL = fb
-                        break
                 continue
             elif "429" in err_str or "rate_limit" in err_str.lower():
                 wait_match = re.search(r"try again in ([\d\.]+)s", err_str)
