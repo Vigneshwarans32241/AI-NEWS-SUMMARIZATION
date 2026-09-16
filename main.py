@@ -57,12 +57,20 @@ origins = [
 # If deployed, allow the production frontend URL
 frontend_url = os.getenv("FRONTEND_URL")
 if frontend_url:
-    origins.append(frontend_url)
+    origins.append(frontend_url.rstrip("/"))
+    from urllib.parse import urlparse
+    parsed = urlparse(frontend_url)
+    if parsed.scheme and parsed.netloc:
+        origins.append(f"{parsed.scheme}://{parsed.netloc}")
+
+# Automatically allow your GitHub Pages origin
+origins.append("https://vigneshwarans32241.github.io")
 
 # Add CORS middleware to allow React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, 
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*\.github\.io",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
