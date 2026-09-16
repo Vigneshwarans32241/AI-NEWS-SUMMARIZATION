@@ -13,8 +13,8 @@ python-dotenv
 requests
 beautifulsoup4
 feedparser
-googletrans==4.0.0rc1
-groq
+groq>=0.9.0
+httpx>=0.24.0
 deep-translator
 gTTS
 psycopg2-binary

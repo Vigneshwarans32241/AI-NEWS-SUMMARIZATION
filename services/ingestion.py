@@ -221,14 +221,7 @@ async def process_article_logic(article_data, parsed_feed):
     
     content = " ".join([c for c in content_parts if c])
     
-    # Try to import translator, but handle if it's not available
     translator = None
-    try:
-        from googletrans import Translator
-        translator = Translator()
-    except ImportError:
-        print("WARNING: googletrans not installed. Skipping translation. Install with: pip install googletrans==4.0.0rc1")
-        translator = None
     
     # Clean ALL text sources - NO FILTERING
     cleaned_desc = clean_html(raw_html_desc)

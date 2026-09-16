@@ -4,7 +4,14 @@ import json
 import re
 import time
 from dotenv import load_dotenv
-from groq import Groq
+try:
+    from groq import Groq
+except Exception:
+    try:
+        import groq
+        Groq = getattr(groq, "Groq", None) or getattr(groq, "Client", None)
+    except Exception:
+        Groq = None
 
 ENV_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
 load_dotenv(dotenv_path=ENV_PATH)
@@ -398,7 +405,7 @@ def generate_groq_ai_content(text, headline=None, max_retries=3):
     3. Exactly 3 non-generic, highly specific Wh-questions derived directly from the article facts.
     """
     api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
+    if not api_key or not Groq:
         return None
         
     client = Groq(api_key=api_key)
@@ -516,7 +523,7 @@ def generate_groq_quizzes_only(text, headline=None, max_retries=3):
     On-demand generator that uses Groq to create 3 high-quality, non-generic Wh-questions for an existing article.
     """
     api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
+    if not api_key or not Groq:
         return None
         
     client = Groq(api_key=api_key)
