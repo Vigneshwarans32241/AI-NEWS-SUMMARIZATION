@@ -36,9 +36,12 @@ def safe_print(*args, **kwargs):
 
 # Public RSS feeds - English only, no Hindi or other non-English feeds
 LIVE_RSS_FEEDS = [
-    "http://feeds.bbci.co.uk/news/world/rss.xml",
+    "https://feeds.bbci.co.uk/news/world/rss.xml",
     "https://feeds.bbci.co.uk/news/technology/rss.xml",
-    "https://www.thehindu.com/news/national/feeder/default.rss"
+    "https://feeds.bbci.co.uk/news/business/rss.xml",
+    "https://www.thehindu.com/news/national/feeder/default.rss",
+    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
 ]
 
 # ── Deduplication helpers ──────────────────────────────────────────────────────
@@ -466,8 +469,8 @@ async def ingest_rss_feed():
     Pulls a real live RSS feed URL.
     Fetches MULTIPLE unprocessed articles per run (Batch Processing).
     """
-    # Process up to 3 NEW successfully ingested articles per run to increase throughput
-    MAX_ARTICLES_PER_RUN = 3
+    # Process up to 5 NEW successfully ingested articles per run to increase throughput
+    MAX_ARTICLES_PER_RUN = 5
     processed_count = 0
     successful_insertions = 0
     skipped_existing = 0

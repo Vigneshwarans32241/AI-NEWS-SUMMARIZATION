@@ -41,8 +41,16 @@ async def startup_event():
     try:
         scheduler.add_job(scheduled_ingestion, "interval", minutes=5, max_instances=1)
         scheduler.start()
+        # Immediately fetch fresh live news on startup in the background
+        asyncio.create_task(scheduled_ingestion())
     except Exception as e:
         print(f"Scheduler startup notice: {e}")
+
+@app.api_route("/api/ingest/run", methods=["GET", "POST"])
+async def trigger_ingestion_direct():
+    """API: Trigger fresh RSS ingestion on-demand without requiring authentication"""
+    result = await ingest_rss_feed()
+    return result
 
 @app.on_event("shutdown")
 def shutdown_event():
