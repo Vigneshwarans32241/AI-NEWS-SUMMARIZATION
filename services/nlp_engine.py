@@ -441,13 +441,54 @@ def generate_ai_features(simplified_text, headline=None):
 
     return {"genre": genre, "quizzes": quizzes[:3]}
 
+CACHED_GROQ_MODEL = None
+
+def get_best_groq_model(client):
+    """
+    Dynamically identifies an active, supported Groq model for the current API key.
+    Prevents 404 model_not_found errors if a model is deprecated or inaccessible in the account.
+    """
+    global CACHED_GROQ_MODEL
+    if CACHED_GROQ_MODEL:
+        return CACHED_GROQ_MODEL
+
+    env_model = os.environ.get("GROQ_MODEL")
+    candidate_order = [
+        env_model,
+        "llama-3.3-70b-versatile",
+        "llama3-70b-8192",
+        "llama3-8b-8192",
+        "gemma2-9b-it",
+        "mixtral-8x7b-32768"
+    ]
+    try:
+        models_res = client.models.list()
+        available_ids = {m.id for m in models_res.data}
+        for cand in candidate_order:
+            if cand and cand in available_ids:
+                CACHED_GROQ_MODEL = cand
+                print(f"[Groq AI] Selected active model: {CACHED_GROQ_MODEL}")
+                return CACHED_GROQ_MODEL
+        if available_ids:
+            for mid in available_ids:
+                if "whisper" not in mid and "guard" not in mid:
+                    CACHED_GROQ_MODEL = mid
+                    print(f"[Groq AI] Auto-selected available model: {CACHED_GROQ_MODEL}")
+                    return CACHED_GROQ_MODEL
+    except Exception as e:
+        print(f"[Groq AI] Could not query models list: {e}")
+
+    CACHED_GROQ_MODEL = env_model or "llama-3.3-70b-versatile"
+    return CACHED_GROQ_MODEL
+
 def generate_groq_ai_content(text, headline=None, max_retries=3):
     """
-    Uses Groq API (llama-3.1-8b-instant) with automated rate-limit retries to generate:
+    Uses Groq API with automated model detection & rate-limit retries to generate:
     1. A rich, high-quality, comprehensive 150-250 word summary (Grade 6 level) retaining all facts, figures, and names.
     2. An accurate genre classification.
     3. Exactly 3 dynamic, diverse reading comprehension questions derived directly from the generated summary.
     """
+    global CACHED_GROQ_MODEL
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key or not Groq:
         return None
@@ -489,9 +530,10 @@ def generate_groq_ai_content(text, headline=None, max_retries=3):
     )
     
     for attempt in range(max_retries):
+        model_name = get_best_groq_model(client)
         try:
             response = client.chat.completions.create(
-                model=os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant"),
+                model=model_name,
                 response_format={"type": "json_object"},
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.45,
@@ -554,7 +596,16 @@ def generate_groq_ai_content(text, headline=None, max_retries=3):
             }
         except Exception as e:
             err_str = str(e)
-            if "429" in err_str or "rate_limit" in err_str.lower():
+            if "model_not_found" in err_str or "404" in err_str or "does not exist" in err_str.lower():
+                print(f"[Groq AI] Model '{model_name}' not found (404). Switching model and retrying...")
+                CACHED_GROQ_MODEL = None
+                fallback_list = ["llama-3.3-70b-versatile", "llama3-70b-8192", "llama3-8b-8192", "gemma2-9b-it"]
+                for fb in fallback_list:
+                    if fb != model_name:
+                        CACHED_GROQ_MODEL = fb
+                        break
+                continue
+            elif "429" in err_str or "rate_limit" in err_str.lower():
                 # Rate limited: wait and retry
                 wait_match = re.search(r"try again in ([\d\.]+)s", err_str)
                 wait_sec = float(wait_match.group(1)) + 0.5 if wait_match else (2.0 * (attempt + 1))
@@ -571,6 +622,7 @@ def generate_groq_quizzes_only(text, headline=None, max_retries=3):
     On-demand generator that uses Groq to create 3 high-quality, dynamic reading comprehension
     questions derived directly from the finalized summarized article text.
     """
+    global CACHED_GROQ_MODEL
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key or not Groq:
         return None
@@ -608,9 +660,10 @@ def generate_groq_quizzes_only(text, headline=None, max_retries=3):
     )
     
     for attempt in range(max_retries):
+        model_name = get_best_groq_model(client)
         try:
             response = client.chat.completions.create(
-                model=os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant"),
+                model=model_name,
                 response_format={"type": "json_object"},
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.45,
@@ -641,7 +694,16 @@ def generate_groq_quizzes_only(text, headline=None, max_retries=3):
                     return clean_q[:3]
         except Exception as e:
             err_str = str(e)
-            if "429" in err_str or "rate_limit" in err_str.lower():
+            if "model_not_found" in err_str or "404" in err_str or "does not exist" in err_str.lower():
+                print(f"[Groq AI] Model '{model_name}' not found (404). Switching model and retrying...")
+                CACHED_GROQ_MODEL = None
+                fallback_list = ["llama-3.3-70b-versatile", "llama3-70b-8192", "llama3-8b-8192", "gemma2-9b-it"]
+                for fb in fallback_list:
+                    if fb != model_name:
+                        CACHED_GROQ_MODEL = fb
+                        break
+                continue
+            elif "429" in err_str or "rate_limit" in err_str.lower():
                 wait_match = re.search(r"try again in ([\d\.]+)s", err_str)
                 wait_sec = float(wait_match.group(1)) + 0.5 if wait_match else 2.0
                 time.sleep(min(wait_sec, 6.0))
