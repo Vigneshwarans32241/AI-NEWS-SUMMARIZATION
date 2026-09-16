@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, ShieldCheck, AlertTriangle, ChevronDown, ChevronUp, BookOpen, Clock, CheckCircle, Brain, ExternalLink, Trophy, Volume2, Square, Share2, Bookmark, BookmarkCheck } from 'lucide-react'
+import { ArrowLeft, ShieldCheck, AlertTriangle, ChevronDown, ChevronUp, BookOpen, Clock, CheckCircle, Brain, ExternalLink, Trophy, Volume2, Square, Share2, Bookmark, BookmarkCheck, Sparkles } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import PolyglotLoader from '../components/PolyglotLoader'
@@ -22,6 +22,7 @@ export default function ArticleDetail() {
     const [loading, setLoading] = useState(true)
     const [answers, setAnswers] = useState({})
     const [quizResult, setQuizResult] = useState(null)
+    const [isRegenerating, setIsRegenerating] = useState(false)
     const [showOriginal, setShowOriginal] = useState(false)
     const [isSpeaking, setIsSpeaking] = useState(false)
     const [audioElement, setAudioElement] = useState(null)
@@ -247,6 +248,32 @@ export default function ArticleDetail() {
         }
     }
 
+    const handleRegenerateQuiz = async () => {
+        if (isRegenerating) return
+        setIsRegenerating(true)
+        try {
+            const token = localStorage.getItem('token')
+            const res = await fetch(`${baseUrl}/api/articles/${id}/regenerate-quiz?lang=${language}`, {
+                method: 'POST',
+                headers: {
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                }
+            })
+            if (res.ok) {
+                const data = await res.json()
+                if (data.quizzes && data.quizzes.length > 0) {
+                    setArticle(prev => ({ ...prev, quizzes: data.quizzes }))
+                    setAnswers({})
+                    setQuizResult(null)
+                }
+            }
+        } catch (err) {
+            console.error("Failed to regenerate quiz", err)
+        } finally {
+            setIsRegenerating(false)
+        }
+    }
+
     if (loading || !article) {
         return <PolyglotLoader fullPage text="TRANSLATING & VERIFYING" subtext="DECODING MULTILINGUAL ARTICLE" />
     }
@@ -358,9 +385,21 @@ export default function ArticleDetail() {
                 {article.quizzes && article.quizzes.length > 0 && (
                     <div className="border border-border-main p-6 sm:p-8 mb-10 relative">
                         <div className="absolute top-0 left-0 w-1 h-full bg-text-main"></div>
-                        <h3 className="headline-lg text-text-main mb-6 pb-3 border-b border-border-main">
-                            {t('testComprehension')}
-                        </h3>
+                        <div className="flex items-center justify-between mb-6 pb-3 border-b border-border-main">
+                            <h3 className="headline-lg text-text-main">
+                                {t('testComprehension')}
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={handleRegenerateQuiz}
+                                disabled={isRegenerating}
+                                className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-text-muted hover:text-text-main transition-colors px-2.5 py-1.5 border border-border-subtle hover:border-border-main bg-bg-surface cursor-pointer disabled:opacity-50"
+                                title="Generate fresh dynamic questions based on this summary"
+                            >
+                                <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
+                                <span>{isRegenerating ? "Generating..." : "New Questions"}</span>
+                            </button>
+                        </div>
 
                         <AnimatePresence>
                             {quizResult ? (

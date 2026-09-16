@@ -3,7 +3,14 @@ import os
 import json
 import re
 import time
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+    ENV_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+    load_dotenv(dotenv_path=ENV_PATH)
+    load_dotenv()
+except ImportError:
+    pass
+
 try:
     from groq import Groq
 except Exception:
@@ -12,10 +19,6 @@ except Exception:
         Groq = getattr(groq, "Groq", None) or getattr(groq, "Client", None)
     except Exception:
         Groq = None
-
-ENV_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
-load_dotenv(dotenv_path=ENV_PATH)
-load_dotenv() # Also check standard cwd
 
 # Common junk/noise phrases to filter out from raw RSS/scrapes
 JUNK_PATTERNS = [
@@ -215,11 +218,11 @@ def fact_check_pipeline(original, simplified):
         "failure_reason": None
     }
 
-def generate_ai_features(simplified_text):
+def generate_ai_features(simplified_text, headline=None):
     """
-    Article-Specific AI Wh-Question & Concise Answer Option Generator.
-    Produces natural, specific Wh-questions naming the actual entities, locations, metrics,
-    and actions directly from the article text.
+    Article-Specific Dynamic Reading Comprehension Quiz & Genre Generator.
+    Generates dynamic, natural reading comprehension questions derived directly
+    from the summarized article text, completely free of robotic canned templates.
     """
     clean_text = clean_noise_from_text(simplified_text)
     lower_text = clean_text.lower()
@@ -239,161 +242,202 @@ def generate_ai_features(simplified_text):
         genre = "General"
 
     sentences = _split_into_sentences(clean_text)
+    if not sentences:
+        if headline:
+            clean_hl = clean_noise_from_text(headline)
+            sentences = [clean_hl] if clean_hl else ["News agencies reported major developments today."]
+        else:
+            sentences = ["News agencies reported major developments today."]
+
     quizzes = []
     used_questions = set()
 
-    # Extract Proper Nouns (Entities, Places, People, Organizations)
-    words = clean_text.split()
-    proper_nouns = []
-    for w in words:
-        w_clean = re.sub(r'[^\w]', '', w)
-        if w_clean and w_clean[0].isupper() and len(w_clean) > 2 and w_clean.lower() not in [
-            'the', 'a', 'an', 'and', 'but', 'or', 'for', 'nor', 'on', 'at', 'to', 'from', 'by', 'in', 'out', 'of',
-            'why', 'how', 'what', 'when', 'where', 'which', 'who', 'whose', 'whom',
-            'engine', 'department', 'section', 'article', 'report', 'reports', 'news',
-            'this', 'that', 'they', 'official', 'officials', 'minister', 'ministers',
-            'authority', 'authorities', 'police', 'government', 'state', 'local',
-            'unprecedented', 'following', 'after', 'about', 'another', 'several', 'other',
-            'field', 'technical', 'public', 'national', 'district', 'regional', 'independent',
-            'representative', 'executive', 'leader', 'leaders', 'members', 'officers', 'teams', 'departments',
-            'thursday', 'friday', 'saturday', 'sunday', 'monday', 'tuesday', 'wednesday',
-            'august', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'september', 'october', 'november', 'december'
-        ]:
-            if w_clean not in proper_nouns:
-                proper_nouns.append(w_clean)
+    # Pre-extract sentence predicates and key statements to serve as realistic distractors
+    sentence_predicates = []
+    for s in sentences:
+        s_clean = s.rstrip('.!?')
+        vm = re.search(r'^(?:[A-Za-z0-9\s,\'\"\-]+?)\s+(has|have|is|are|was|were|will|would|announced|approved|decided|warned|revealed|reported|demanded|agreed|launched|passed|rejected|urged|confirmed|noted|stated|explained|called for)\s+(.+)$', s_clean, re.IGNORECASE)
+        if vm:
+            verb = vm.group(1).lower()
+            obj = vm.group(2).strip()
+            if len(obj) > 15:
+                sentence_predicates.append(f"{verb} {obj}")
+        elif len(s_clean) > 20:
+            sentence_predicates.append(s_clean)
 
-    main_entity = proper_nouns[0] if proper_nouns else "the article subject"
-
-    # Pattern 1: FINANCIAL / QUANTITY QUESTION naming main_entity
-    money_m = re.search(r'(\u20b9|\$|\bUSD\b|\bEUR\b|\bRs\.?\s*)(\d+(?:\.\d+)?)\s*(crore|million|billion|lakh)?', clean_text, re.IGNORECASE)
-    if money_m:
-        curr, amt, unit = money_m.group(1), money_m.group(2), money_m.group(3) or ''
-        full_amt = f"{curr}{amt} {unit}".strip()
-        q_text = f"What total financial figure ({full_amt[:6]}...) was reported for projects involving {main_entity}?"
-        if q_text not in used_questions:
-            used_questions.add(q_text)
-            try:
-                val_f = float(amt)
-                d1 = f"{curr}{val_f * 2.5:.2f} {unit}".strip()
-                d2 = f"{curr}{max(1.0, val_f * 0.3):.2f} {unit}".strip()
-            except Exception:
-                d1 = f"{curr}450.00 {unit}".strip()
-                d2 = f"{curr}95.00 {unit}".strip()
-                
-            answers = [
-                {"text": full_amt, "is_correct": True},
-                {"text": d1, "is_correct": False},
-                {"text": d2, "is_correct": False}
-            ]
-            random.shuffle(answers)
-            quizzes.append({"question_text": q_text, "question_type": "factual", "answers": answers})
-
-    # Pattern 2: COUNT / NUMBER QUESTION naming noun & main_entity
-    if len(quizzes) < 3:
-        count_m = re.findall(r'\b(\d+(?:,\d+)?)\s+((?:[a-z]+\s+)?(?:residents|people|persons|families|officers|countries|households|victims|protesters|patients|drivers|students|members|troops|officials|users|voters))\b', clean_text, re.IGNORECASE)
-        for num_str, noun_phrase in count_m[:2]:
-            val = int(num_str.replace(',', ''))
-            q_text = f"How many {noun_phrase.lower()} were reported in connection with {main_entity}?"
-            if q_text not in used_questions:
-                used_questions.add(q_text)
-                correct = f"{num_str} {noun_phrase}"
-                d1 = f"{int(val * 2.5):,} {noun_phrase}"
-                d2 = f"{max(1, int(val * 0.25)):,} {noun_phrase}"
-                
-                answers = [
-                    {"text": correct, "is_correct": True},
-                    {"text": d1, "is_correct": False},
-                    {"text": d2, "is_correct": False}
-                ]
-                random.shuffle(answers)
-                quizzes.append({"question_text": q_text, "question_type": "factual", "answers": answers})
-                break
-
-    # Pattern 3: NAMED PERSON / OFFICIAL QUESTION naming Person
-    if len(quizzes) < 3:
-        person_m = re.search(r'\b(Mr\.|Ms\.|Mrs\.|Dr\.|President|Leader|Boss|Chief)?\s*([A-Z][a-z]+\s+[A-Z][a-z]+)\b', clean_text)
-        if person_m:
-            p_name = person_m.group(2).strip()
-            if p_name.split()[0].lower() not in ['official', 'local', 'thursday', 'friday', 'saturday', 'sunday', 'monday', 'tuesday', 'wednesday', 'august']:
-                p_s = next((s for s in sentences if p_name in s), None)
-                if p_s and len(p_s) > 20:
-                    q_text = f"What specific action or finding was reported regarding {p_name} in the article?"
-                    if q_text not in used_questions:
-                        used_questions.add(q_text)
-                        correct = p_s if len(p_s) < 95 else (p_s[:90] + "...")
-                        d1 = f"{p_name} was appointed head of an independent technical oversight panel."
-                        d2 = f"{p_name} issued a public statement postponing all scheduled regional operations."
-                        
-                        answers = [
-                            {"text": correct, "is_correct": True},
-                            {"text": d1, "is_correct": False},
-                            {"text": d2, "is_correct": False}
-                        ]
-                        random.shuffle(answers)
-                        quizzes.append({"question_text": q_text, "question_type": "detail", "answers": answers})
-
-    # Pattern 4: LOCATION QUESTION naming Place
-    if len(quizzes) < 3:
-        loc_m = re.search(r'\b(?:at|in|near|to|around)\s+([A-Z][a-zA-Z0-9\s]{3,30}\b(?:Hospital|Village|District|Phase\s+\d+|City|Center|Sanctuary|County|Taluk|Airport|River|Ground|Plant|Facility))', clean_text)
-        if loc_m:
-            loc_name = loc_m.group(1).strip()
-            q_text = f"Which specific location or facility in {loc_name} was identified in connection with the event?"
-            if q_text not in used_questions:
-                used_questions.add(q_text)
-                d1 = "Central Regional Administrative Center"
-                d2 = "District Technical Operations Complex"
-                
-                answers = [
-                    {"text": loc_name, "is_correct": True},
-                    {"text": d1, "is_correct": False},
-                    {"text": d2, "is_correct": False}
-                ]
-                random.shuffle(answers)
-                quizzes.append({"question_text": q_text, "question_type": "detail", "answers": answers})
-
-    # Pattern 5: MAIN ENTITY POLICY / DEVELOPMENT QUESTION
-    if len(quizzes) < 3 and main_entity and main_entity != "the article subject":
-        ent_s = next((s for s in sentences if main_entity in s), sentences[0] if sentences else "")
-        if ent_s:
-            q_text = f"What major development or issue was reported regarding {main_entity}?"
-            if q_text not in used_questions:
-                used_questions.add(q_text)
-                correct = ent_s if len(ent_s) < 95 else (ent_s[:90] + "...")
-                d1 = f"{main_entity} announced a complete postponement of all operational updates."
-                d2 = f"{main_entity} formed a joint venture with European regional advisors."
-                
-                answers = [
-                    {"text": correct, "is_correct": True},
-                    {"text": d1, "is_correct": False},
-                    {"text": d2, "is_correct": False}
-                ]
-                random.shuffle(answers)
-                quizzes.append({"question_text": q_text, "question_type": "factual", "answers": answers})
-
-    # Fill remaining quizzes up to 3 using sentence-grounded Wh-questions naming main_entity
-    while len(quizzes) < 3 and len(sentences) > 0:
-        idx = len(quizzes)
-        s = sentences[min(idx, len(sentences) - 1)]
-        if idx == 0:
-            q_text = f"What primary action or event involving {main_entity} was reported in the opening summary?"
-        elif idx == 1:
-            q_text = f"What key factual detail regarding {main_entity} was highlighted in the middle section?"
-        else:
-            q_text = f"What outcome or concluding statement was reported regarding {main_entity}?"
-
-        if q_text not in used_questions:
-            used_questions.add(q_text)
-            correct = s if len(s) < 95 else (s[:90] + "...")
-            d1 = f"Authorities postponed all related administrative updates regarding {main_entity} pending further review."
-            d2 = f"Independent technical experts confirmed no operational changes occurred for {main_entity}."
+    # Strategy 1: Action / Announcement / Warning / Decision by an Entity
+    for s in sentences:
+        if len(quizzes) >= 3:
+            break
+        m = re.search(r'\b([A-Z][A-Za-z0-9\s\-]{2,35}?)\s+(announced that|warned that|decided to|approved|voted to|revealed that|urged|agreed to|proposed that|confirmed that|called for|clarified that|emphasized that)\s+([^.;]+)', s, re.IGNORECASE)
+        if m:
+            subj = m.group(1).strip()
+            verb_phrase = m.group(2).strip().lower()
+            content = m.group(3).strip()
             
-            answers = [
-                {"text": correct, "is_correct": True},
-                {"text": d1, "is_correct": False},
-                {"text": d2, "is_correct": False}
-            ]
-            random.shuffle(answers)
-            quizzes.append({"question_text": q_text, "question_type": "detail", "answers": answers})
+            if subj.lower() in ['this', 'that', 'there', 'it', 'they', 'we', 'he', 'she', 'these', 'those']:
+                continue
+            if len(content) < 15:
+                continue
+
+            if 'warned' in verb_phrase:
+                q_text = f"What key warning was issued by {subj}?"
+            elif 'announced' in verb_phrase:
+                q_text = f"What major announcement did {subj} make?"
+            elif 'approved' in verb_phrase or 'voted' in verb_phrase:
+                q_text = f"What important measure was approved by {subj}?"
+            elif 'confirmed' in verb_phrase or 'revealed' in verb_phrase:
+                q_text = f"What did {subj} confirm according to the report?"
+            elif 'called for' in verb_phrase or 'urged' in verb_phrase:
+                q_text = f"What action did {subj} call for or urge?"
+            elif 'decided' in verb_phrase or 'agreed' in verb_phrase:
+                q_text = f"What decision was reached by {subj}?"
+            else:
+                q_text = f"According to the summary, what did {subj} emphasize?"
+
+            if q_text not in used_questions:
+                used_questions.add(q_text)
+                correct_text = content[0].upper() + content[1:]
+                if not correct_text.endswith('.'):
+                    correct_text += '.'
+                
+                other_preds = [p for p in sentence_predicates if content.lower() not in p.lower() and len(p) > 15]
+                d1 = other_preds[0][0].upper() + other_preds[0][1:] + '.' if len(other_preds) > 0 else "All related administrative directives were put on temporary hold."
+                d2 = other_preds[1][0].upper() + other_preds[1][1:] + '.' if len(other_preds) > 1 else "A joint review panel was formed to evaluate international standards."
+                
+                answers = [
+                    {"text": correct_text, "is_correct": True},
+                    {"text": d1, "is_correct": False},
+                    {"text": d2, "is_correct": False}
+                ]
+                random.shuffle(answers)
+                quizzes.append({
+                    "question_text": q_text,
+                    "question_type": "action_detail",
+                    "answers": answers
+                })
+
+    # Strategy 2: Cause & Effect / Motive / Problem
+    for s in sentences:
+        if len(quizzes) >= 3:
+            break
+        cause_m = re.search(r'\b(after|because|due to|in response to|to prevent|prompted by|following)\s+([^,.;]+)', s, re.IGNORECASE)
+        if cause_m:
+            conj = cause_m.group(1).lower()
+            cause_clause = cause_m.group(2).strip()
+            main_clause = s[:cause_m.start()].strip(', ')
+            
+            if len(main_clause) > 15 and len(cause_clause) > 12:
+                clean_main = re.sub(r'^(However|Moreover|Furthermore|Additionally|Meanwhile|In addition),?\s*', '', main_clause, flags=re.IGNORECASE)
+                clean_main = clean_main[0].lower() + clean_main[1:]
+                
+                if conj in ['after', 'following', 'prompted by', 'in response to']:
+                    q_text = f"What prompted or led to {clean_main[:65]}?"
+                else:
+                    q_text = f"Why did {clean_main[:65]} occur?"
+                
+                q_text = q_text[0].upper() + q_text[1:]
+                if not q_text.endswith('?'):
+                    q_text += '?'
+                    
+                if q_text not in used_questions:
+                    used_questions.add(q_text)
+                    correct_text = cause_clause[0].upper() + cause_clause[1:]
+                    if not correct_text.endswith('.'):
+                        correct_text += '.'
+                    
+                    other_preds = [p for p in sentence_predicates if cause_clause.lower() not in p.lower() and len(p) > 15]
+                    d1 = other_preds[0][0].upper() + other_preds[0][1:] + '.' if len(other_preds) > 0 else "Unexpected budget reallocations across municipal departments."
+                    d2 = other_preds[1][0].upper() + other_preds[1][1:] + '.' if len(other_preds) > 1 else "A delay in obtaining environmental regulatory compliance certificates."
+                    
+                    answers = [
+                        {"text": correct_text, "is_correct": True},
+                        {"text": d1, "is_correct": False},
+                        {"text": d2, "is_correct": False}
+                    ]
+                    random.shuffle(answers)
+                    quizzes.append({
+                        "question_text": q_text,
+                        "question_type": "cause_effect",
+                        "answers": answers
+                    })
+
+    # Strategy 3: Key Metric / Number / Timeframe
+    for s in sentences:
+        if len(quizzes) >= 3:
+            break
+        num_m = re.search(r'\b(\$?\d+(?:\.\d+)?%?|\d+\s+(?:crore|lakh|million|billion|percent|people|residents|users|students|patients|cases|days|weeks|months|years|km|miles|tonnes))\b', s, re.IGNORECASE)
+        if num_m:
+            target_metric = num_m.group(1).strip()
+            before = s[:num_m.start()].strip()
+            after = s[num_m.end():].strip().rstrip('.!?')
+            
+            subj_words = [w for w in before.split() if len(w) > 3][-4:]
+            subj_context = " ".join(subj_words)
+            after_context = " ".join(after.split()[:3])
+            
+            if subj_context:
+                q_text = f"According to the summary, what figure or metric was reported regarding {subj_context.lower()} {after_context.lower()}?"
+                q_text = re.sub(r'\s+', ' ', q_text).strip()
+                if not q_text.endswith('?'):
+                    q_text += '?'
+                if q_text not in used_questions:
+                    used_questions.add(q_text)
+                    try:
+                        pure_num = float(re.sub(r'[^\d.]', '', target_metric))
+                        unit = re.sub(r'[\d.]', '', target_metric).strip()
+                        d1_num = pure_num * 2.5
+                        d2_num = max(1.0, pure_num * 0.4)
+                        d1_txt = f"{d1_num:.1f}".rstrip('0').rstrip('.') + f" {unit}".rstrip()
+                        d2_txt = f"{d2_num:.1f}".rstrip('0').rstrip('.') + f" {unit}".rstrip()
+                        if target_metric.startswith('$'):
+                            d1_txt = '$' + d1_txt
+                            d2_txt = '$' + d2_txt
+                    except Exception:
+                        d1_txt = "Approximately double the reported figure"
+                        d2_txt = "A nominal fraction of the stated amount"
+                        
+                    answers = [
+                        {"text": target_metric, "is_correct": True},
+                        {"text": d1_txt, "is_correct": False},
+                        {"text": d2_txt, "is_correct": False}
+                    ]
+                    random.shuffle(answers)
+                    quizzes.append({
+                        "question_text": q_text,
+                        "question_type": "metric",
+                        "answers": answers
+                    })
+
+    # Strategy 4: Direct Sentence Comprehension
+    for idx, s in enumerate(sentences):
+        if len(quizzes) >= 3:
+            break
+        s_clean = s.rstrip('.!?')
+        words = s_clean.split()
+        if len(words) >= 6:
+            subj_candidate = " ".join(words[:min(4, len(words))])
+            rest_of_s = " ".join(words[min(4, len(words)):])
+            
+            q_text = f"Based on the summary, what key development was highlighted concerning {subj_candidate.strip()}?"
+            if q_text not in used_questions:
+                used_questions.add(q_text)
+                correct_text = rest_of_s[0].upper() + rest_of_s[1:] + '.'
+                other_preds = [p for p in sentence_predicates if rest_of_s.lower() not in p.lower() and len(p) > 15]
+                d1 = other_preds[0][0].upper() + other_preds[0][1:] + '.' if len(other_preds) > 0 else "The project was deferred to the upcoming fiscal calendar."
+                d2 = other_preds[1][0].upper() + other_preds[1][1:] + '.' if len(other_preds) > 1 else "External monitors completed their preliminary inquiry without findings."
+                
+                answers = [
+                    {"text": correct_text, "is_correct": True},
+                    {"text": d1, "is_correct": False},
+                    {"text": d2, "is_correct": False}
+                ]
+                random.shuffle(answers)
+                quizzes.append({
+                    "question_text": q_text,
+                    "question_type": "comprehension",
+                    "answers": answers
+                })
 
     return {"genre": genre, "quizzes": quizzes[:3]}
 
@@ -402,7 +446,7 @@ def generate_groq_ai_content(text, headline=None, max_retries=3):
     Uses Groq API (llama-3.1-8b-instant) with automated rate-limit retries to generate:
     1. A rich, high-quality, comprehensive 150-250 word summary (Grade 6 level) retaining all facts, figures, and names.
     2. An accurate genre classification.
-    3. Exactly 3 non-generic, highly specific Wh-questions derived directly from the article facts.
+    3. Exactly 3 dynamic, diverse reading comprehension questions derived directly from the generated summary.
     """
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key or not Groq:
@@ -413,30 +457,34 @@ def generate_groq_ai_content(text, headline=None, max_retries=3):
     article_context = f"Headline: {headline}\n\nArticle Content:\n{text}" if headline else f"Article Content:\n{text}"
     
     prompt = (
-        "You are an expert news editor and educational quiz creator for an intelligent news reading platform.\n"
-        "Carefully analyze the article provided below and output a strictly valid JSON object.\n\n"
+        "You are an expert news editor and educational reading comprehension designer for an intelligent news platform.\n"
+        "Carefully analyze the news text provided below and output a strictly valid JSON object.\n\n"
         "JSON SCHEMA REQUIREMENT:\n"
         "{\n"
         '  "summary": "A comprehensive 150-250 word simplified summary string structured into 2-3 readable paragraphs. Must include all key facts, numbers, dates, organizations, and names from the article. Absolutely NO generic filler sentences.",\n'
         '  "genre": "One of Technology, Environment, Business, Science, Politics, Sports, Health, General",\n'
         '  "quizzes": [\n'
         "    {\n"
-        '      "question_text": "Who / What / Where / When / Why / How question strictly based on a specific fact in the article",\n'
+        '      "question_text": "Dynamic reading comprehension question strictly grounded in your generated summary",\n'
         '      "question_type": "factual",\n'
         '      "answers": [\n'
-        '        {"text": "Accurate correct answer from article", "is_correct": true},\n'
-        '        {"text": "Plausible wrong distractor in context", "is_correct": false},\n'
-        '        {"text": "Another plausible wrong distractor", "is_correct": false}\n'
+        '        {"text": "Accurate answer from the summary", "is_correct": true},\n'
+        '        {"text": "Realistic plausible distractor in context", "is_correct": false},\n'
+        '        {"text": "Another realistic plausible distractor", "is_correct": false}\n'
         "      ]\n"
         "    }\n"
         "  ]\n"
         "}\n\n"
         "CRITICAL QUIZ QUALITY RULES:\n"
-        "1. Every question MUST ask about a specific person, place, organization, policy, amount, or event explicitly mentioned in the text.\n"
-        "2. NEVER output generic questions like 'What is the main topic?' or 'What specific action was reported regarding [Entity]?'.\n"
-        "3. For the 2 wrong answers (distractors), provide realistic, plausible choices related to the topic, NEVER generic filler.\n"
-        "4. Output EXACTLY 3 quiz items in the \"quizzes\" array, each with exactly 3 answer choices (1 true, 2 false).\n"
-        "5. \"summary\" MUST be a string.\n\n"
+        "1. STRICT SUMMARY GROUNDING: All 3 questions and answers MUST be derived directly from the 'summary' text you generate, so a reader who reads your summary can easily answer them.\n"
+        "2. THREE DIVERSE COGNITIVE ANGLES:\n"
+        "   - Q1: Catalyst / Motive / Cause-and-Effect (Why did this happen? What problem prompted the action?)\n"
+        "   - Q2: Key Mechanism / Specific Finding / Rule / Figure (What specific detail, requirement, or metric was reported?)\n"
+        "   - Q3: Impact / Warning / Future Outlook (What is expected next? What consequence or warning was emphasized?)\n"
+        "3. NO FORMULAIC TEMPLATES: NEVER write 'What specific action was reported regarding [Entity]?' or 'What major development...'. Write natural, fluent questions like an expert journalist or educator.\n"
+        "4. PLAUSIBLE DISTRACTORS: Distractors must be realistic, context-appropriate alternative choices of similar length and style as the correct answer.\n"
+        "5. Output EXACTLY 3 quiz items in the 'quizzes' array, each with exactly 3 answer choices (1 true, 2 false).\n"
+        "6. 'summary' MUST be a string.\n\n"
         f"{article_context}"
     )
     
@@ -446,7 +494,7 @@ def generate_groq_ai_content(text, headline=None, max_retries=3):
                 model=os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant"),
                 response_format={"type": "json_object"},
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
+                temperature=0.45,
                 max_tokens=1500,
                 timeout=12.0
             )
@@ -520,36 +568,43 @@ def generate_groq_ai_content(text, headline=None, max_retries=3):
 
 def generate_groq_quizzes_only(text, headline=None, max_retries=3):
     """
-    On-demand generator that uses Groq to create 3 high-quality, non-generic Wh-questions for an existing article.
+    On-demand generator that uses Groq to create 3 high-quality, dynamic reading comprehension
+    questions derived directly from the finalized summarized article text.
     """
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key or not Groq:
         return None
         
     client = Groq(api_key=api_key)
-    article_context = f"Headline: {headline}\n\nArticle Content:\n{text}" if headline else f"Article Content:\n{text}"
+    article_context = f"Headline: {headline}\n\nSummarized Article:\n{text}" if headline else f"Summarized Article:\n{text}"
     
     prompt = (
-        "You are an expert news quiz generator. Read the article below and generate EXACTLY 3 multiple-choice comprehension questions.\n\n"
-        "RULES:\n"
-        "1. Every question must be a specific Wh-question (Who, What, Where, When, Why, How) referencing exact people, places, organizations, costs, dates, or causes from the article.\n"
-        "2. Do NOT write generic questions like 'What is the main topic?' or 'What action was reported regarding [Entity]?'.\n"
-        "3. Provide exactly 3 answer choices per question (1 true, 2 plausible false options).\n\n"
-        "Output ONLY valid JSON in this format:\n"
+        "You are an expert reading comprehension test designer for an intelligent educational news platform.\n"
+        "Below is a finalized summarized news story that readers just finished reading on screen.\n\n"
+        f"{article_context}\n\n"
+        "TASK: Create EXACTLY 3 dynamic, diverse, insightful reading comprehension questions that test whether the reader understood this summarized story.\n\n"
+        "PEDAGOGICAL REQUIREMENTS (3 Distinct Angles):\n"
+        "1. Question 1 (Catalyst / Motive / Cause-and-Effect): Ask WHY something happened, what problem or motivation sparked the main development, or what caused the key event.\n"
+        "2. Question 2 (Core Fact / Mechanism / Specific Detail): Ask about a crucial specific rule, decision, technical detail, finding, or figure explained in the summary.\n"
+        "3. Question 3 (Impact / Warning / Forward Outlook): Ask about the consequences, official warnings, future expectations, or next steps highlighted in the summary.\n\n"
+        "STRICT QUALITY RULES:\n"
+        "- 100% Grounded in Summary: Every question and correct answer MUST be directly answerable from the provided summary text alone.\n"
+        "- NO Robotic Templates: NEVER use formulaic templates like 'What specific action or finding was reported regarding...', 'What major development or issue...', 'What outcome was reported...', 'What total financial figure...'. Write natural, fluent journalistic or classroom-style questions.\n"
+        "- Plausible Distractors: Each question must have EXACTLY 3 answer choices (1 true, 2 false). Distractors must be realistic, credible misunderstandings or alternative scenarios within the same topic context, of similar length and grammar as the correct answer. NEVER use generic filler like 'No change occurred' or 'Authorities postponed operations'.\n"
+        "- JSON Schema: Return ONLY valid JSON adhering to:\n"
         "{\n"
         '  "quizzes": [\n'
         "    {\n"
-        '      "question_text": "Exact Wh-question from the article?",\n'
+        '      "question_text": "Engaging, natural question text?",\n'
         '      "question_type": "factual",\n'
         '      "answers": [\n'
-        '        {"text": "Correct answer from article", "is_correct": true},\n'
-        '        {"text": "Plausible wrong option", "is_correct": false},\n'
-        '        {"text": "Another plausible wrong option", "is_correct": false}\n'
+        '        {"text": "Directly accurate answer from the summary", "is_correct": true},\n'
+        '        {"text": "Plausible contextual distractor", "is_correct": false},\n'
+        '        {"text": "Another realistic distractor", "is_correct": false}\n'
         "      ]\n"
         "    }\n"
         "  ]\n"
-        "}\n\n"
-        f"{article_context}"
+        "}\n"
     )
     
     for attempt in range(max_retries):
@@ -558,8 +613,8 @@ def generate_groq_quizzes_only(text, headline=None, max_retries=3):
                 model=os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant"),
                 response_format={"type": "json_object"},
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                max_tokens=1000,
+                temperature=0.45,
+                max_tokens=1200,
                 timeout=10.0
             )
             raw = response.choices[0].message.content.strip()
@@ -598,6 +653,8 @@ def run_nlp_pipeline(raw_text, headline=None):
     """
     Coordinates the full stateless NLP pipeline.
     First attempts high-fidelity Groq AI generation for summary & questions.
+    Ensures that all generated quizzes are dynamic reading comprehension questions
+    grounded directly in the finalized summarized article.
     Seamlessly falls back to the deterministic rule-based pipeline on error/timeout.
     """
     clean_input = clean_noise_from_text(raw_text)
@@ -614,13 +671,45 @@ def run_nlp_pipeline(raw_text, headline=None):
         word_count = len(simplified.split())
         readability = calculate_readability_score(simplified)
         fact_result = fact_check_pipeline(clean_input, simplified)
+        
+        quizzes = groq_result.get("quizzes", [])
+        
+        # Verify quizzes are non-generic and sufficiently populated
+        GENERIC_CHECK = [
+            "reported regarding",
+            "total financial figure",
+            "opening summary",
+            "middle section",
+            "concluding statement",
+            "the article subject",
+            "which statement best summarizes",
+            "were reported in connection with"
+        ]
+        needs_refresh = False
+        if not quizzes or len(quizzes) < 3:
+            needs_refresh = True
+        else:
+            for q in quizzes:
+                qt = q.get("question_text", "").lower()
+                if any(p in qt for p in GENERIC_CHECK):
+                    needs_refresh = True
+                    break
+                    
+        if needs_refresh:
+            # Refresh quizzes directly against the generated summary text
+            refreshed = generate_groq_quizzes_only(simplified, headline=headline)
+            if refreshed:
+                quizzes = refreshed
+            else:
+                quizzes = generate_ai_features(simplified, headline=headline).get("quizzes", [])
+
         return {
             "status": "SUCCESS",
             "simplified_text": simplified,
             "readability_score": readability,
             "word_count": word_count,
             "fact_result": fact_result,
-            "quiz_data": groq_result["quizzes"],
+            "quiz_data": quizzes,
             "genre": groq_result["genre"]
         }
 
@@ -630,7 +719,7 @@ def run_nlp_pipeline(raw_text, headline=None):
     word_count = len(simplified.split())
     readability = calculate_readability_score(simplified)
     fact_result = fact_check_pipeline(clean_input, simplified)
-    ai_payload = generate_ai_features(simplified)
+    ai_payload = generate_ai_features(simplified, headline=headline)
     
     return {
         "status": "SUCCESS",
@@ -641,3 +730,4 @@ def run_nlp_pipeline(raw_text, headline=None):
         "quiz_data": ai_payload["quizzes"],
         "genre": ai_payload["genre"]
     }
+

@@ -282,7 +282,15 @@ async def get_article_detail(article_id: str, lang: str = "en", current_user: Op
         "what key factual detail regarding",
         "what primary action or event involving",
         "were reported in connection with",
-        "what total financial figure"
+        "what total financial figure",
+        "which specific location or facility in",
+        "opening summary",
+        "middle section",
+        "concluding statement",
+        "the article subject",
+        "disturbing or notable development",
+        "which statement best summarizes",
+        "reported for projects involving"
     ]
 
     is_generic = False
@@ -298,10 +306,14 @@ async def get_article_detail(article_id: str, lang: str = "en", current_user: Op
 
     formatted_quizzes = []
     if is_generic:
-        from services.nlp_engine import generate_groq_quizzes_only
+        from services.nlp_engine import generate_groq_quizzes_only, generate_ai_features
         simp_text = article.get("simplified_text") or article.get("original", {}).get("raw_text") or article.get("headline", "")
         headline = article.get("simplified_headline") or article.get("headline", "")
         ai_quizzes = generate_groq_quizzes_only(simp_text, headline=headline)
+        if not ai_quizzes or len(ai_quizzes) == 0:
+            local_feat = generate_ai_features(simp_text, headline=headline)
+            ai_quizzes = local_feat.get("quizzes", [])
+            
         if ai_quizzes:
             db_quizzes = []
             for q_idx, q_data in enumerate(ai_quizzes):
@@ -400,6 +412,78 @@ async def get_article_detail(article_id: str, lang: str = "en", current_user: Op
             response_data["quizzes"] = translated_quizzes
 
     return response_data
+
+@app.post("/api/articles/{article_id}/regenerate-quiz")
+async def regenerate_quiz(article_id: str, lang: str = "en"):
+    """
+    On-demand regenerator: Creates 3 fresh, dynamic reading comprehension
+    questions derived directly from the summarized article text.
+    """
+    try:
+        obj_id = ObjectId(article_id)
+    except:
+        return {"error": "Invalid Article ID format"}
+        
+    article = await articles_collection.find_one({"_id": obj_id})
+    if not article:
+        return {"error": "Article not found"}
+        
+    article = item_helper(article)
+    simp_text = article.get("simplified_text") or article.get("original", {}).get("raw_text") or article.get("headline", "")
+    headline = article.get("simplified_headline") or article.get("headline", "")
+    
+    from services.nlp_engine import generate_groq_quizzes_only, generate_ai_features
+    ai_quizzes = generate_groq_quizzes_only(simp_text, headline=headline)
+    if not ai_quizzes or len(ai_quizzes) == 0:
+        local_feat = generate_ai_features(simp_text, headline=headline)
+        ai_quizzes = local_feat.get("quizzes", [])
+        
+    if not ai_quizzes:
+        return {"error": "Could not generate quizzes at this time"}
+        
+    db_quizzes = []
+    formatted_quizzes = []
+    for q_idx, q_data in enumerate(ai_quizzes):
+        q_id = str(uuid.uuid4())
+        answers = [
+            {
+                "id": str(uuid.uuid4()),
+                "text": a["text"],
+                "answer_text": a["text"],
+                "is_correct": a["is_correct"]
+            } for a in q_data.get("answers", [])
+        ]
+        formatted_quizzes.append({
+            "id": q_id,
+            "question_text": q_data["question_text"],
+            "answers": answers
+        })
+        db_quizzes.append({
+            "id": q_id,
+            "question_text": q_data["question_text"],
+            "question_type": q_data.get("question_type", "factual"),
+            "answers": answers
+        })
+        
+    try:
+        await articles_collection.update_one({"_id": obj_id}, {"$set": {"quizzes": db_quizzes}})
+    except Exception:
+        pass
+        
+    if lang.lower() in ["hi", "ta", "te", "kn", "ml", "mr", "bn"]:
+        formatted_quizzes = translate_quizzes_helper(formatted_quizzes, lang.lower())
+        try:
+            await articles_collection.update_one(
+                {"_id": obj_id},
+                {"$set": {f"translations.{lang.lower()}.quizzes": formatted_quizzes}}
+            )
+        except Exception:
+            pass
+
+    return {
+        "status": "SUCCESS",
+        "quizzes": formatted_quizzes
+    }
 
 import io
 import asyncio
