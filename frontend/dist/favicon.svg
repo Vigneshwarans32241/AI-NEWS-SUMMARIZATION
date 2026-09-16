@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <style>
+    .bg { fill: #f5f0e8; }
+    .border-main { stroke: #1a1a1a; }
+    .border-sub { stroke: #1a1a1a; stroke-opacity: 0.4; }
+    .ink { fill: #1a1a1a; }
+    .rule-thick { stroke: #1a1a1a; }
+    .rule-thin { stroke: #1a1a1a; }
+
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #141414; }
+      .border-main { stroke: #e8e4dc; }
+      .border-sub { stroke: #e8e4dc; stroke-opacity: 0.35; }
+      .ink { fill: #e8e4dc; }
+      .rule-thick { stroke: #e8e4dc; }
+      .rule-thin { stroke: #e8e4dc; }
+    }
+  </style>
+
+  <!-- Outer Newsprint Badge -->
+  <rect class="bg" width="64" height="64" rx="12" />
+  
+  <!-- Outer Newspaper Rule Border -->
+  <rect class="border-main" x="2" y="2" width="60" height="60" rx="10" stroke-width="2.5" />
+  
+  <!-- Inner Thin Editorial Border Rule -->
+  <rect class="border-sub" x="5" y="5" width="54" height="54" rx="8" stroke-width="1" />
+  
+  <!-- Top Masthead Double Rules -->
+  <path class="rule-thick" d="M10 12H54" stroke-width="2" stroke-linecap="square" />
+  <path class="rule-thin" d="M10 15H54" stroke-width="0.8" stroke-linecap="square" />
+
+  <!-- Iconic Serif Letter 'D' (The Daily Dispatch) -->
+  <text 
+    class="ink"
+    x="32" 
+    y="46" 
+    font-family="'Playfair Display', Georgia, 'Times New Roman', serif" 
+    font-size="34" 
+    font-weight="900" 
+    text-anchor="middle"
+    letter-spacing="-1"
+  >D</text>
+
+  <!-- Bottom Editorial Double Rules -->
+  <path class="rule-thin" d="M10 50H54" stroke-width="0.8" stroke-linecap="square" />
+  <path class="rule-thick" d="M10 52.5H54" stroke-width="1.8" stroke-linecap="square" />
+</svg>

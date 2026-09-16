@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard | ClearNews{% endblock %}
+
+{% block content %}
+<div class="mb-2">
+    <a href="/"
+        style="display:inline-block; margin-bottom: 2rem; color: var(--text-muted); text-decoration: none; font-weight: 600;">&larr;
+        Back to Platform</a>
+    <h2>Platform Health & Metrics</h2>
+    <p style="color: var(--text-muted); font-weight: 500;">Research study monitoring and AI pipeline status.</p>
+</div>
+
+<div class="admin-grid">
+    <div class="metric-card">
+        <div class="metric-label">Articles Processed</div>
+        <div class="metric-value">{{ total }}</div>
+    </div>
+
+    <div class="metric-card">
+        <div class="metric-label">Successfully Simplified</div>
+        <div class="metric-value">{{ successful }} <span
+                style="font-size: 1rem; color: var(--text-muted); font-weight: 500;">/ {{ total }}</span></div>
+    </div>
+
+    <div class="metric-card highlight">
+        <div class="metric-label">Avg. Comprehension Score</div>
+        <div class="metric-value">{{ avg_score }}%</div>
+    </div>
+
+    <div class="metric-card highlight">
+        <div class="metric-label">Avg. Readability Level</div>
+        <div class="metric-value">Grade {{ avg_readability }}</div>
+    </div>
+</div>
+
+<!-- Simulated RSS Ingestion Control -->
+<div class="article-reader">
+    <h3>Data Ingestion Pipeline</h3>
+    <p style="margin-bottom: 1.5rem; color: var(--text-muted);">
+        The system normally runs this via an automated cron job every 15 minutes. For this demonstration, you can
+        manually trigger the pipeline below.
+    </p>
+
+    <form method="POST" action="/admin/ingest">
+        <button type="submit" class="btn-primary">Trigger Simulated Feed Sync</button>
+    </form>
+
+    <div style="margin-top: 2rem; background: #FFFBEB; border: 1px solid #FEF3C7; padding: 1.5rem; border-radius: 8px;">
+        <h4 style="color: #92400E; margin-bottom: 10px;">Pipeline Flow</h4>
+        <ol style="margin-left: 20px; color: #B45309; line-height: 1.6; font-weight: 500;">
+            <li>Fetch article from Local News RSS.</li>
+            <li>Send to Layer 1 (Entity/Fact Extraction).</li>
+            <li>Send to Layer 2 (Grade 6 Simplication).</li>
+            <li>Verify Strict-Fact inclusion.</li>
+            <li>Calculate Semantic Similarity vs Original.</li>
+            <li>Generate 3 Comprehension Questions.</li>
+            <li>Save to Database cache.</li>
+        </ol>
+    </div>
+</div>
+{% endblock %}

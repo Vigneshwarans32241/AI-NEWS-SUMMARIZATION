@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-2">
+    <h2>Verified Local News</h2>
+    <p style="color: var(--text-muted); font-weight: 500;">Clear, simple, and fact-checked daily.</p>
+</div>
+
+<div class="article-feed">
+    {% if not articles %}
+    <div class="article-card text-center" style="padding: 3rem;">
+        <div style="font-size: 3rem; margin-bottom: 1rem;">📭</div>
+        <h3>No articles available yet.</h3>
+        <p>Visit the <a href="/admin">Admin Dashboard</a> to ingest new content.</p>
+    </div>
+    {% endif %}
+
+    {% for article in articles %}
+    <a href="/article/{{ article.id }}" class="article-card">
+        <div class="card-meta">
+            <span>📅 {{ article.original.published_date[:10] }}</span>
+            <span>⏱️ ~{{ (article.word_count / 150)|round|int }} min read</span>
+            <span style="color: var(--success)">✅ Grade {{ article.readability_score|round(1) }}</span>
+        </div>
+        <h3 class="card-title">{{ article.simplified_headline }}</h3>
+    </a>
+    {% endfor %}
+</div>
+{% endblock %}

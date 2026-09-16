@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}{{ article.simplified_headline }} | ClearNews{% endblock %}
+
+{% block content %}
+<article class="article-reader">
+    <a href="/"
+        style="display:inline-block; margin-bottom: 2rem; color: var(--text-muted); text-decoration: none; font-weight: 600;">&larr;
+        Back to Feed</a>
+
+    <h1 class="article-headline">{{ article.simplified_headline }}</h1>
+
+    <!-- Fact Verification Badge -->
+    <div>
+        {% if fact_log.confidence_pct >= 90 %}
+        <div class="trust-badge">
+            <span aria-hidden="true">✅</span> Verified Match: {{ fact_log.confidence_pct|round(1) }}%
+            <span style="font-size: 0.8rem; opacity: 0.8; margin-left: 10px; font-weight: 500">(Entities: {{
+                fact_log.matched_entities_count }})</span>
+        </div>
+        {% else %}
+        <div class="trust-badge trust-badge-fail">
+            <span aria-hidden="true">⚠️</span> Confidence: {{ fact_log.confidence_pct|round(1) }}%
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="article-body">
+        <p>{{ article.simplified_text }}</p>
+    </div>
+
+    <!-- The Zero-JS Comprehension Quiz -->
+    {% if quizzes %}
+    <form class="quiz-section" method="POST" action="/quiz/{{ article.id }}">
+        <h3 class="quiz-header">Check Your Understanding</h3>
+
+        {% if request.query_params.get('score') %}
+        <div
+            style="background-color: #DCFCE7; color: #166534; padding: 16px; border-radius: 8px; border: 2px solid #16A34A; margin-bottom: 2rem; font-weight: 700; font-size: 1.2rem;">
+            Score: {{ request.query_params.get('score') }}% - Thanks for participating!
+        </div>
+        {% endif %}
+
+        {% for quiz in quizzes %}
+        <div class="quiz-question">
+            <p>{{ loop.index }}. {{ quiz.question_text }}</p>
+            <div class="quiz-options">
+                {% for answer in quiz.answers %}
+                <label class="quiz-label">
+                    <input type="radio" name="quiz_{{ quiz.id }}" value="{{ answer.id }}" required>
+                    <span>{{ answer.answer_text }}</span>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+
+        <button type="submit" class="btn-primary btn-submit">Submit Answers</button>
+    </form>
+    {% endif %}
+
+    <!-- Accessible Toggle for Original Text -->
+    <div class="source-toggle-container">
+        <details>
+            <summary
+                style="font-weight: 700; cursor: pointer; color: var(--text-muted); font-size: 1.1rem; padding: 10px;">
+                Show Original Complex Text (Reading Level ~12+)
+            </summary>
+            <div
+                style="margin-top: 1rem; padding: 1.5rem; background: #F8FAFC; border: 1px solid var(--border-color); border-radius: 8px; font-size: 1rem; color: #475569;">
+                <p><em>Source: <a href="{{ original.source_url }}" target="_blank" style="color:var(--primary)">Original
+                            Link</a></em></p>
+                <hr style="margin: 10px 0; border: none; border-top: 1px solid #E2E8F0;">
+                <p>{{ original.raw_text }}</p>
+            </div>
+        </details>
+    </div>
+</article>
+{% endblock %}

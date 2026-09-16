@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AI News Platform{% endblock %}</title>
+    <!-- Use a highly legible system font stack -->
+    <link href="/static/style.css" rel="stylesheet">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container">
+            <a href="/" class="logo">
+                <span class="logo-icon">📰</span>
+                <h1>ClearNews</h1>
+            </a>
+            <nav class="nav-links">
+                <a href="/admin" class="nav-btn-secondary">⚙️ Admin</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="main-content container">
+        {% block content %}
+        {% endblock %}
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">
+            <p>ClearNews — Simplified, verified, and accessible public information.</p>
+        </div>
+    </footer>
+</body>
+</html>
