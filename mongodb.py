@@ -101,6 +101,52 @@ class LocalCursor:
         except StopIteration:
             raise StopAsyncIteration
 
+class SafeMotorCursor:
+    def __init__(self, motor_cursor, fallback_cursor):
+        self.motor_cursor = motor_cursor
+        self.fallback_cursor = fallback_cursor
+
+    def sort(self, *args, **kwargs):
+        try:
+            self.motor_cursor = self.motor_cursor.sort(*args, **kwargs)
+        except Exception:
+            pass
+        self.fallback_cursor.sort(*args, **kwargs)
+        return self
+
+    def skip(self, n):
+        try:
+            self.motor_cursor = self.motor_cursor.skip(n)
+        except Exception:
+            pass
+        self.fallback_cursor.skip(n)
+        return self
+
+    def limit(self, n):
+        try:
+            self.motor_cursor = self.motor_cursor.limit(n)
+        except Exception:
+            pass
+        self.fallback_cursor.limit(n)
+        return self
+
+    async def to_list(self, length=None):
+        try:
+            return await self.motor_cursor.to_list(length=length)
+        except Exception:
+            return await self.fallback_cursor.to_list(length=length)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return await self.motor_cursor.__anext__()
+        except StopAsyncIteration:
+            raise
+        except Exception:
+            return await self.fallback_cursor.__anext__()
+
 class InsertResult:
     def __init__(self, inserted_id):
         self.inserted_id = inserted_id
@@ -217,12 +263,6 @@ class LocalCollectionWrapper:
         if filter_dict is None:
             filter_dict = {}
 
-        if self.motor_coll:
-            try:
-                return self.motor_coll.find(filter_dict, projection)
-            except Exception:
-                pass
-
         db_data = _load_local_db()
         docs = db_data.get(self.name, [])
         matched = []
@@ -235,7 +275,16 @@ class LocalCollectionWrapper:
                     except Exception:
                         pass
                 matched.append(res)
-        return LocalCursor(matched)
+        fallback = LocalCursor(matched)
+
+        if self.motor_coll:
+            try:
+                motor_cur = self.motor_coll.find(filter_dict, projection)
+                return SafeMotorCursor(motor_cur, fallback)
+            except Exception:
+                pass
+
+        return fallback
 
     async def distinct(self, key, filter_dict=None):
         if self.motor_coll:
@@ -273,16 +322,17 @@ class LocalCollectionWrapper:
                 break
         _save_local_db(db_data)
 
-# Initialize Motor Client if possible
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+# Initialize Motor Client only if external MONGO_URI is explicitly configured
+MONGO_URI = os.getenv("MONGO_URI")
 motor_client = None
 motor_db = None
-try:
-    from motor.motor_asyncio import AsyncIOMotorClient
-    motor_client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=1000)
-    motor_db = motor_client.ainewsplatform
-except Exception:
-    pass
+if MONGO_URI and MONGO_URI.strip() and "localhost" not in MONGO_URI and "127.0.0.1" not in MONGO_URI:
+    try:
+        from motor.motor_asyncio import AsyncIOMotorClient
+        motor_client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=2000)
+        motor_db = motor_client.ainewsplatform
+    except Exception:
+        pass
 
 users_collection = LocalCollectionWrapper("users", motor_db.get_collection("users") if motor_db is not None else None)
 articles_collection = LocalCollectionWrapper("articles", motor_db.get_collection("articles") if motor_db is not None else None)
